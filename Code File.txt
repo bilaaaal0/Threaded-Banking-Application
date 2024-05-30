@@ -1,0 +1,835 @@
+//k224143
+//k224319
+//k224492
+//compiling: gcc `pkg-config --cflags gtk+-3.0` -o name  name.c `pkg-config --libs gtk+-3.0` -pthread
+#include <gtk/gtk.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <sys/time.h>
+
+#define LENGTH1 20
+#define LENGTH2 20
+
+int iterations = 1;
+int old_pin=1234;
+int new_pin=5678;
+int fee=50;
+int damount=0;
+int wamount=0;
+long int accountN=0;
+int tamount=0;
+int wpin=0,dpin=0,tpin=0;
+  
+GtkWidget *result_label=NULL,*check_button=NULL,*check_button2=NULL,*result_label2=NULL,
+*check_button3=NULL,*check_button4=NULL,*check_button5=NULL,
+*check_button6=NULL,*check_button7=NULL;
+GtkWidget *n1=NULL, *n2=NULL, *text_view;
+GtkWidget *elapsed_time_label;
+GtkWidget *n3=NULL ,*n4=NULL,*n5=NULL,*n6=NULL,*n7=NULL,*n8=NULL,*n9=NULL,*n10=NULL,*n11=NULL;
+
+static gboolean update_text_view(gpointer data) {
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
+    GtkTextIter end;
+    gtk_text_buffer_get_end_iter(buffer, &end);
+    gtk_text_buffer_insert(buffer, &end, (char *)data, -1);
+    free(data);  
+    return FALSE; 
+}
+typedef struct {
+    atomic_bool locked;
+} Spinlock;
+
+void Spinlock_init(Spinlock* lock) {
+    atomic_init(&lock->locked, false);
+}
+
+void Spinlock_lock(Spinlock* lock, int thread_id) {
+    while (1) {
+        bool expected = false;
+        if (atomic_compare_exchange_weak(&lock->locked, &expected, true)) {
+            char *start_msg = g_strdup_printf("Thread %d locked.\n", thread_id);
+            gdk_threads_add_idle(update_text_view, start_msg);
+            return;
+        }
+        while (atomic_load(&lock->locked)) { }
+    }
+}
+
+void Spinlock_unlock(Spinlock* lock, int thread_id) {
+    atomic_store(&lock->locked, false);
+    char *start_msg = g_strdup_printf("Thread %d unlocked.\n", thread_id);
+    gdk_threads_add_idle(update_text_view, start_msg);
+}
+
+typedef struct {
+ long int accountNumber;
+ int Balance;
+ int pin;
+ int freeze;
+ 
+}BankAccount;
+
+BankAccount account={12345678,1000,1234,0};
+BankAccount account2={87654321,5000,5678,0};
+
+
+typedef struct {
+    Spinlock* spinlock;
+    int thread_id;
+} ThreadData;
+
+
+
+
+void *deposit_function(void *arg) {
+
+    ThreadData* data = (ThreadData*)arg;
+    usleep(500000);
+    Spinlock_lock(data->spinlock, data->thread_id);
+    
+    if(account.freeze==1)
+    {
+    	char *msg = g_strdup_printf("Thread %d(Deposit):Account is frozen\n",data->thread_id);
+        gdk_threads_add_idle(update_text_view, msg);
+       
+    }
+    else
+    {
+    if(dpin==account.pin)
+    {
+    for(int i = 0; i < iterations; ++i) {
+    
+        account.Balance += damount;
+        char *msg = g_strdup_printf("Thread %d: Deposited %d, New Balance: %d\n", data->thread_id, damount, account.Balance);
+        gdk_threads_add_idle(update_text_view, msg);
+        
+    }
+    }
+    else
+    {
+      char *msg = g_strdup_printf("Thread(Deposit) %d: failed to deposit %d due to incorrect pin \n", data->thread_id, damount);
+        gdk_threads_add_idle(update_text_view, msg);
+    }
+    }
+    Spinlock_unlock(data->spinlock, data->thread_id);
+    return NULL;
+}
+
+void *change_pin_function(void *arg) {
+    ThreadData* data = (ThreadData*)arg;
+    usleep(500000);
+    int thread_id = data->thread_id; 
+    Spinlock_lock(data->spinlock, data->thread_id);
+    if(account.freeze==1)
+    {
+        char *msg = g_strdup_printf("Thread %d(Change Pin):Account is frozen\n",data->thread_id);
+        gdk_threads_add_idle(update_text_view, msg);
+       
+    }
+    
+    else
+    {
+    
+    if (account.pin == old_pin) {
+        account.pin = new_pin;
+        old_pin=new_pin;
+        char *msg = g_strdup_printf("Thread %d: PIN changed successfully.\n", thread_id);
+        gdk_threads_add_idle(update_text_view, msg);
+    } else {
+        
+        char *msg = g_strdup_printf("Thread %d: Failed to change PIN - incorrect old PIN.\n", thread_id);
+        gdk_threads_add_idle(update_text_view, msg);
+    }
+    }
+     Spinlock_unlock(data->spinlock, data->thread_id);
+    
+    return NULL;
+}
+
+void *withdraw_function(void *arg) {
+    ThreadData* data = (ThreadData*)arg;
+     usleep(500000);
+    Spinlock_lock(data->spinlock, data->thread_id);
+    if(account.freeze==1)
+    {
+    	char *msg = g_strdup_printf("Thread %d(Withdraw):Account is frozen\n",data->thread_id);
+        gdk_threads_add_idle(update_text_view, msg);
+       
+    }
+    else{
+    if(wpin==account.pin)
+    {
+    for(int i = 0; i < iterations; ++i) {
+        
+        if (account.Balance >= wamount) {
+            account.Balance -= wamount;
+            char *msg = g_strdup_printf("Thread %d: Withdrew %d, New Balance: %d\n", data->thread_id, wamount, account.Balance);
+            gdk_threads_add_idle(update_text_view, msg);
+        } else {
+            char *msg = g_strdup_printf("Thread %d: Failed to Withdraw %d due to Insufficient funds, Balance: %d\n", data->thread_id, wamount, account.Balance);
+            gdk_threads_add_idle(update_text_view, msg);
+        }
+       
+    }}
+    else
+    {
+          char *msg = g_strdup_printf("Thread(Withdraw) %d: failed to withdraw %d due to incorrect pin \n", data->thread_id, wamount);
+        gdk_threads_add_idle(update_text_view, msg);
+    }
+    }
+     Spinlock_unlock(data->spinlock, data->thread_id);
+    return NULL;
+}
+
+void * apply_service_fee(void* arg) {
+usleep(500000);
+    ThreadData* data = (ThreadData*) arg;
+    Spinlock_lock(data->spinlock, data->thread_id);
+    if(account.freeze==1)
+    {
+    	char *msg = g_strdup_printf("Thread %d(Service Fee):Account is frozen\n",data->thread_id);
+        gdk_threads_add_idle(update_text_view, msg);
+    }
+
+    else
+    {
+   
+    if (account.Balance >= fee ) {
+        account.Balance -= fee;
+        
+        char *msg = g_strdup_printf("Thread %d: Service fee of $%d applied, New Balance: $%d\n", 
+                                    data->thread_id, fee, account.Balance);
+        gdk_threads_add_idle(update_text_view, msg);
+    } else {
+       
+        char *msg = g_strdup_printf("Thread %d: Insufficient funds to apply $%d service fee. Current Balance: $%d\n", 
+                                    data->thread_id, fee, account.Balance);
+        gdk_threads_add_idle(update_text_view, msg);
+    }
+    }
+    Spinlock_unlock(data->spinlock, data->thread_id);
+     return NULL;
+}
+
+void * freezeaccount(void *arg){
+    ThreadData* data=(ThreadData*) arg;
+    usleep(500000);
+    Spinlock_lock(data->spinlock,data->thread_id);
+    if(account.freeze != 1)
+    {
+    	account.freeze=1;
+    	
+    	char *msg = g_strdup_printf("Thread %d: Account frozen succesfully\n", data->thread_id);
+    	gdk_threads_add_idle(update_text_view, msg);
+    }
+    else{
+    	char *msg = g_strdup_printf("Thread %d: Account already frozen\n", data->thread_id);
+    	gdk_threads_add_idle(update_text_view, msg);	
+    }
+	Spinlock_unlock(data->spinlock,data->thread_id);
+	return NULL;
+}
+
+void * unfreezeaccount(void *arg){
+    ThreadData* data=(ThreadData*) arg;
+    usleep(500000);
+    Spinlock_lock(data->spinlock,data->thread_id);
+    if(account.freeze == 1)
+    {
+    	account.freeze=0;
+    	
+    	char *msg = g_strdup_printf("Thread %d: Account unfrozen succesfully\n", data->thread_id);
+    	gdk_threads_add_idle(update_text_view, msg);
+    }
+    else{
+    	char *msg = g_strdup_printf("Thread %d: Account not frozen\n", data->thread_id);
+    	gdk_threads_add_idle(update_text_view, msg);	
+    }
+	Spinlock_unlock(data->spinlock,data->thread_id);
+	return NULL;
+}
+
+
+void *transferFunds(void *arg) {
+    ThreadData* data = (ThreadData*)arg;
+    usleep(500000);
+    Spinlock_lock(data->spinlock, data->thread_id);
+    if(account.freeze==1)
+    {
+    	char *msg = g_strdup_printf("Thread %d(TransferFunds):Account is frozen\n",data->thread_id);
+        gdk_threads_add_idle(update_text_view, msg);
+       
+    }
+    else{
+    if(tpin==account.pin)
+    {
+    for(int i = 0; i < iterations; ++i) {
+         
+        if(accountN==account2.accountNumber)
+        {
+        if (account.Balance >= tamount) {
+            account.Balance -= tamount;
+            account2.Balance += tamount;
+            char *msg = g_strdup_printf("Thread %d: Transfered Funds %d, New Balance: %d\n", data->thread_id, tamount, account.Balance);
+            gdk_threads_add_idle(update_text_view, msg);
+        } else {
+            char *msg = g_strdup_printf("Thread %d: Failed to Transfer %d due to Insufficient funds, Balance: %d\n", data->thread_id, tamount, account.Balance);
+            gdk_threads_add_idle(update_text_view, msg);
+        }
+       
+    }
+    else
+    {
+    char *msg = g_strdup_printf("Thread %d: Failed to Transfer %d due to Incorrect AccountNumber: %ld, Balance: %d\n", data->thread_id, tamount,accountN, account.Balance);
+            gdk_threads_add_idle(update_text_view, msg);
+    }
+    }}
+    else{
+    char *msg = g_strdup_printf("Thread(Transfer) %d: failed to Transfer %d due to incorrect pin \n", data->thread_id, tamount);
+        gdk_threads_add_idle(update_text_view, msg);
+    }
+    }
+    
+     Spinlock_unlock(data->spinlock, data->thread_id);
+    return NULL;
+}
+
+
+void action_button(GtkButton *button, gpointer data) {
+
+    struct timeval start, end;
+    long seconds, useconds;    
+    double mtime;
+    
+    gettimeofday(&start, NULL);
+
+    int num_threads=7;
+
+  
+    if(n3){
+    const char *old_pin_text = gtk_entry_get_text(GTK_ENTRY(n3));
+    if (old_pin_text && strlen(old_pin_text) > 0) {
+        old_pin = atoi(old_pin_text);  
+    }
+    
+    }
+    
+    if(n4){
+    const char *new_pin_text = gtk_entry_get_text(GTK_ENTRY(n4));
+    if (new_pin_text && strlen(new_pin_text) > 0) {
+        new_pin = atoi(new_pin_text);  
+    }}
+    
+    if(n5){
+    const char *account_text = gtk_entry_get_text(GTK_ENTRY(n5));
+    if (account_text && strlen(account_text) > 0) {
+        accountN = atoi(account_text);  
+    }}
+    
+    if(n1){
+    const char *tamount_text = gtk_entry_get_text(GTK_ENTRY(n1));
+    if (tamount_text && strlen(tamount_text) > 0) {
+        tamount = atoi(tamount_text);  
+    }}
+    
+    
+    if(n6){
+     const char *damount_text = gtk_entry_get_text(GTK_ENTRY(n6));
+    if (damount_text && strlen(damount_text) > 0) {
+        damount = atoi(damount_text);  
+    }
+}
+  if(n7)
+  {
+  const char *wamount_text = gtk_entry_get_text(GTK_ENTRY(n7));
+    if (wamount_text && strlen(wamount_text) > 0) {
+        wamount = atoi(wamount_text);  
+   } }
+   
+   if(n8)
+  {
+  const char *withdraw_pin = gtk_entry_get_text(GTK_ENTRY(n8));
+    if (withdraw_pin && strlen(withdraw_pin) > 0) {
+        wpin = atoi(withdraw_pin);  
+   } }
+   
+   if(n9)
+  {
+  const char *deposit_pin = gtk_entry_get_text(GTK_ENTRY(n9));
+    if (deposit_pin && strlen(deposit_pin) > 0) {
+        dpin = atoi(deposit_pin);  
+   } }
+   
+   if(n10)
+  {
+  const char *transfer_pin = gtk_entry_get_text(GTK_ENTRY(n10));
+    if (transfer_pin && strlen(transfer_pin) > 0) {
+        tpin = atoi(transfer_pin);  
+   } }
+   
+   
+    pthread_t *threads = malloc(num_threads * sizeof(pthread_t));
+    ThreadData* thread_data = malloc(num_threads * sizeof(ThreadData));
+    Spinlock sl;
+    Spinlock_init(&sl);
+   
+    
+    for (int i = 0; i < num_threads; ++i) {
+       thread_data[i].spinlock = &sl;
+        thread_data[i].thread_id = i;
+      
+        if (i  == 0) {
+        if (check_button5 && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button5)))
+        {
+        
+            pthread_create(&threads[i], NULL, deposit_function, &thread_data[i]);
+        }
+        } 
+        
+        else if (i==1) {
+        if (check_button6 && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button6)))
+        {
+       
+            pthread_create(&threads[i], NULL, withdraw_function, &thread_data[i]);
+        }
+        }
+        else if(i==2)
+        {
+        
+         if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button2)))
+        {
+        pthread_create(&threads[i], NULL, freezeaccount, &thread_data[i]);
+        }
+        
+        }
+        else if(i==3)
+        {
+        if (check_button4 && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button4)))
+        {
+        
+        
+        pthread_create(&threads[i], NULL,change_pin_function, &thread_data[i]);
+        }
+        }
+        else if(i==4)
+        { if (check_button3 && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button3)))
+        {
+        pthread_create(&threads[i], NULL,unfreezeaccount,&thread_data[i]);
+       
+        }
+        }
+        else if(i==5)
+        {
+        if (check_button && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button)))
+        {
+         
+         pthread_create(&threads[i], NULL,apply_service_fee, &thread_data[i]);
+        }
+        
+        }
+        else if(i==6)
+        {
+        if (check_button7 && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button7)))
+        {
+         
+         pthread_create(&threads[i], NULL,transferFunds, &thread_data[i]);
+        }
+        
+        }
+  
+    }
+
+    for (int i = 0; i < num_threads; ++i) {
+    	if(i==0 && check_button5  && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button5)))
+    	{
+    	pthread_join(threads[i], NULL);
+    	}
+    	else if(i==1&& check_button6 && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button6)))
+    	{
+    	pthread_join(threads[i], NULL);
+    	}
+    	else if(i==2 && check_button2  &&  gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button2)))
+    	{
+    	pthread_join(threads[i], NULL);
+    	}
+    	else if(i==3 && check_button4  &&  gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button4)))
+    	{
+    	pthread_join(threads[i], NULL);
+    	}
+    	else if(i==4 && check_button3  && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button3)))
+    	{
+    	pthread_join(threads[i], NULL);
+    	}
+    	else if(i==5 && check_button  && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button)))
+    	{
+    	pthread_join(threads[i], NULL);
+    	}
+    	else if(i==6 && check_button7  && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_button7)))
+    	{
+    	pthread_join(threads[i], NULL);
+    	}
+    	
+        
+    }
+    
+    free(threads);
+    free(thread_data);
+
+    char *final_text = g_strdup_printf("Final account balance: %d", account.Balance);
+    gtk_label_set_text(GTK_LABEL(result_label), final_text);
+    
+    char *final_text2 = g_strdup_printf("Final account balance: %d", account2.Balance);
+    gtk_label_set_text(GTK_LABEL(result_label2), final_text2);
+    g_free(final_text);
+    g_free(final_text2);
+    
+    gettimeofday(&end, NULL);
+    seconds  = end.tv_sec  - start.tv_sec;
+    useconds = end.tv_usec - start.tv_usec;
+    mtime = ((seconds) * 1000 + useconds / 1000.0) ;
+
+    char *time_msg = g_strdup_printf("Elapsed time: %f milliseconds", mtime);
+    gtk_label_set_text(GTK_LABEL(elapsed_time_label), time_msg);
+    g_free(time_msg);
+}
+
+
+void action_withdraw(GtkButton *button, gpointer data)
+{
+     GtkWidget *window,*descr,*layout,*descr2;
+    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(window), "Withdraw Window");
+    gtk_window_set_default_size(GTK_WINDOW(window), 500, 300);
+    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    gtk_container_set_border_width(GTK_CONTAINER(window), 10);
+      
+    layout = gtk_layout_new(NULL, NULL);
+    gtk_container_add(GTK_CONTAINER(window), layout);
+    
+    descr2 = gtk_label_new("Enter your Pin:");
+    gtk_layout_put(GTK_LAYOUT(layout), descr2, 10, 10);
+    n8 = gtk_entry_new();
+    gtk_entry_set_max_length(GTK_ENTRY(n8), LENGTH1);
+    gtk_layout_put(GTK_LAYOUT(layout), n8, 250, 10);
+    
+    descr = gtk_label_new("Enter Withdraw Amount:");
+    gtk_layout_put(GTK_LAYOUT(layout), descr, 10, 70);
+    n7 = gtk_entry_new();
+    gtk_entry_set_max_length(GTK_ENTRY(n7), LENGTH1);
+    gtk_layout_put(GTK_LAYOUT(layout), n7, 250, 70);
+    
+    check_button6 = gtk_check_button_new_with_label("Done");
+    gtk_layout_put(GTK_LAYOUT(layout), check_button6, 250, 110);
+   
+    gtk_widget_show_all(window);
+      
+}
+
+void action_deposit(GtkButton *button, gpointer data)
+{
+     GtkWidget *window,*descr,*layout,*descr2;
+    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(window), "Deposit Window");
+    gtk_window_set_default_size(GTK_WINDOW(window), 500, 300);
+    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    gtk_container_set_border_width(GTK_CONTAINER(window), 10);
+    
+   
+    layout = gtk_layout_new(NULL, NULL);
+    gtk_container_add(GTK_CONTAINER(window), layout);
+    
+    descr2 = gtk_label_new("Enter your Pin:");
+    gtk_layout_put(GTK_LAYOUT(layout), descr2, 10, 10);
+    n9 = gtk_entry_new();
+    gtk_entry_set_max_length(GTK_ENTRY(n9), LENGTH1);
+    gtk_layout_put(GTK_LAYOUT(layout), n9, 250, 10);
+     
+    descr = gtk_label_new("Enter Deposit Amount:");
+    gtk_layout_put(GTK_LAYOUT(layout), descr, 10, 70);
+    n6 = gtk_entry_new();
+    gtk_entry_set_max_length(GTK_ENTRY(n6), LENGTH1);
+    gtk_layout_put(GTK_LAYOUT(layout), n6, 250, 70);
+    
+    check_button5 = gtk_check_button_new_with_label("Done");
+    gtk_layout_put(GTK_LAYOUT(layout), check_button5, 250, 110);
+   
+    
+   
+    gtk_widget_show_all(window);
+}
+
+
+void action_pin_change(GtkButton *button, gpointer data)
+{
+     GtkWidget *window,*descr,*descr2,*layout;
+     
+    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(window), "Pin Change Window");
+    gtk_window_set_default_size(GTK_WINDOW(window), 500, 300);
+    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    gtk_container_set_border_width(GTK_CONTAINER(window), 10);
+    
+    layout = gtk_layout_new(NULL, NULL);
+    gtk_container_add(GTK_CONTAINER(window), layout);
+    
+    
+    descr = gtk_label_new("Old PIN:");
+    gtk_layout_put(GTK_LAYOUT(layout), descr, 10, 10);
+    n3 = gtk_entry_new();
+    gtk_entry_set_max_length(GTK_ENTRY(n3), LENGTH1);
+    gtk_layout_put(GTK_LAYOUT(layout), n3, 250, 10);
+    
+    descr2 = gtk_label_new("New PIN:");
+    gtk_layout_put(GTK_LAYOUT(layout), descr2, 10, 50);
+    n4 = gtk_entry_new();
+    gtk_entry_set_max_length(GTK_ENTRY(n4), LENGTH1);
+    gtk_layout_put(GTK_LAYOUT(layout), n4, 250, 50);
+    
+    check_button4 = gtk_check_button_new_with_label("Done");
+    gtk_layout_put(GTK_LAYOUT(layout), check_button4, 250, 100);
+    gtk_widget_show_all(window);
+}
+
+void action_transfer(GtkButton *button,gpointer data)
+{
+
+   GtkWidget *window,*descr,*descr2,*layout,*descr3;
+     
+    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(window), "Funds Transfer Window");
+    gtk_window_set_default_size(GTK_WINDOW(window), 500, 300);
+    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    gtk_container_set_border_width(GTK_CONTAINER(window), 10);
+    
+    layout = gtk_layout_new(NULL, NULL);
+    gtk_container_add(GTK_CONTAINER(window), layout);
+    
+    descr3 = gtk_label_new("Enter your Pin:");
+    gtk_layout_put(GTK_LAYOUT(layout), descr3, 10, 10);
+    n10 = gtk_entry_new();
+    gtk_entry_set_max_length(GTK_ENTRY(n10), LENGTH1);
+    gtk_layout_put(GTK_LAYOUT(layout), n10, 250, 10);
+    
+    
+    descr = gtk_label_new("Enter Account Number:");
+    gtk_layout_put(GTK_LAYOUT(layout), descr, 10, 70);
+    n5 = gtk_entry_new();
+    gtk_entry_set_max_length(GTK_ENTRY(n5), LENGTH1);
+    gtk_layout_put(GTK_LAYOUT(layout), n5, 250, 70);
+    
+    descr2 = gtk_label_new("Enter Amount:");
+    gtk_layout_put(GTK_LAYOUT(layout), descr2, 10, 110);
+    n1 = gtk_entry_new();
+    gtk_entry_set_max_length(GTK_ENTRY(n1), LENGTH1);
+    gtk_layout_put(GTK_LAYOUT(layout), n1, 250, 110);
+    
+    check_button7 = gtk_check_button_new_with_label("Done");
+    gtk_layout_put(GTK_LAYOUT(layout), check_button7, 250, 150);
+    gtk_widget_show_all(window);
+}
+GtkWidget *window;
+void exit_button() {
+
+   
+    gtk_widget_destroy(window);
+}
+void restart_button();
+void create_gui()
+{
+    GtkWidget *layout,*button, *button1,*button2,*button3 ,*button4,*button5,*button6,*scrolled_window, *descr1, *descr2,*descr3,*descr4,*descr5,*descr7;
+  
+    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(window), "Multi-Threaded Synchronized Banking Account");
+    gtk_window_set_default_size(GTK_WINDOW(window), 500, 300);
+    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    gtk_container_set_border_width(GTK_CONTAINER(window), 10);
+    GtkWidget *box;
+    GtkCssProvider *cssProvider;
+    GdkDisplay *display;
+    GdkScreen *screen;
+  cssProvider = gtk_css_provider_new();
+    display = gdk_display_get_default();
+    screen = gdk_display_get_default_screen(display);
+    gtk_style_context_add_provider_for_screen(screen,
+                                              GTK_STYLE_PROVIDER(cssProvider),
+                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+    const char *cssData = 
+"window {"
+"   background-color: #00b9e1;"   
+"   color: #000000;"             
+"   font: Sans-serif 12;"               
+"}"
+"box {"  
+"   color: #000000;"             
+"   font: Sans-serif 20;"              
+"}"
+"button  { "
+    " background-image: linear-gradient(to bottom, #e65400, #FFe500);;"
+    
+    "color: black;"
+   
+    "font: Sans 13;"
+
+
+"}"
+"button:hover {"
+    "background-image: linear-gradient(to bottom, #FFe500, #e65400);"
+    
+"}";
+
+;
+     
+    gtk_css_provider_load_from_data(cssProvider, cssData, -1, NULL);
+  
+    
+    layout = gtk_layout_new(NULL, NULL);
+    gtk_container_add(GTK_CONTAINER(window), layout);
+     
+     
+     
+     GtkWidget *initial_balance_label = gtk_label_new(NULL);
+    char *initial_balance_text = g_strdup_printf("Starting Balance: %d", account.Balance);
+    gtk_label_set_text(GTK_LABEL(initial_balance_label), initial_balance_text);
+    gtk_layout_put(GTK_LAYOUT(layout), initial_balance_label, 10, 10);
+    
+    GtkWidget *initial_balance_label2 = gtk_label_new(NULL);
+    char *initial_balance_text2 = g_strdup_printf("Starting Balance: %d", account2.Balance);
+    gtk_label_set_text(GTK_LABEL(initial_balance_label2), initial_balance_text2);
+    gtk_layout_put(GTK_LAYOUT(layout), initial_balance_label2, 750, 10);
+    
+     GtkWidget *accountNumber_label2= gtk_label_new(NULL);
+    char *accountNumber_text2 = g_strdup_printf("Account Number: %ld", account2.accountNumber);
+    gtk_label_set_text(GTK_LABEL(accountNumber_label2), accountNumber_text2);
+    gtk_layout_put(GTK_LAYOUT(layout), accountNumber_label2, 750, 35);
+    
+
+     result_label2 = gtk_label_new("Final Account Balance will appear here");
+    gtk_layout_put(GTK_LAYOUT(layout), result_label2, 750, 80);
+    
+   
+          GtkWidget *accountNumber_label= gtk_label_new(NULL);
+    char *accountNumber_text = g_strdup_printf("Account Number: %ld", account.accountNumber);
+    gtk_label_set_text(GTK_LABEL(accountNumber_label), accountNumber_text);
+    gtk_layout_put(GTK_LAYOUT(layout), accountNumber_label, 10, 35);
+    
+    check_button2 = gtk_check_button_new_with_label("Freeze");
+    
+    gtk_layout_put(GTK_LAYOUT(layout), check_button2, 10, 70);
+    
+    check_button3 = gtk_check_button_new_with_label("UnFreeze");
+    gtk_layout_put(GTK_LAYOUT(layout), check_button3, 90, 70);
+    
+    check_button = gtk_check_button_new_with_label("Apply Service Fee");
+    gtk_layout_put(GTK_LAYOUT(layout), check_button, 200, 70);
+    
+    button4= gtk_button_new_with_label("Pin Change");
+    gtk_layout_put(GTK_LAYOUT(layout), button4, 450, 150);
+    g_signal_connect(button4, "clicked", G_CALLBACK(action_pin_change), NULL);
+    
+    
+    
+    
+    
+    button1 = gtk_button_new_with_label("Deposit Money");
+    gtk_layout_put(GTK_LAYOUT(layout), button1, 300, 150);
+    g_signal_connect(button1, "clicked", G_CALLBACK(action_deposit), NULL);
+    
+    button2 = gtk_button_new_with_label("Withdraw Money");
+    gtk_layout_put(GTK_LAYOUT(layout), button2, 150, 150);
+    g_signal_connect(button2, "clicked", G_CALLBACK(action_withdraw), NULL);
+    
+    button5=gtk_button_new_with_label("Transfer Money");
+    gtk_layout_put(GTK_LAYOUT(layout),button5,10,150);
+    g_signal_connect(button5, "clicked", G_CALLBACK(action_transfer), NULL);
+    
+    
+    button = gtk_button_new_with_label("Start Simulation");
+    gtk_layout_put(GTK_LAYOUT(layout), button, 170, 280);
+    g_signal_connect(button, "clicked", G_CALLBACK(action_button), NULL);
+
+
+     
+    text_view = gtk_text_view_new();
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(text_view), FALSE);
+    gtk_text_view_set_cursor_visible(GTK_TEXT_VIEW(text_view), FALSE);
+    scrolled_window = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_window), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_container_add(GTK_CONTAINER(scrolled_window), text_view);
+    gtk_layout_put(GTK_LAYOUT(layout), scrolled_window, 10, 320);
+    gtk_widget_set_size_request(scrolled_window, 480, 100);
+
+    result_label = gtk_label_new("Final Account Balance will appear here");
+    gtk_layout_put(GTK_LAYOUT(layout), result_label, 140, 475);
+    elapsed_time_label = gtk_label_new("Elapsed time will be displayed here");
+    gtk_layout_put(GTK_LAYOUT(layout), elapsed_time_label, 140, 500);
+    
+    button5=gtk_button_new_with_label("Exit program");
+    gtk_layout_put(GTK_LAYOUT(layout),button5,10,560);
+    g_signal_connect(button5,"clicked",G_CALLBACK(exit_button),NULL);
+    
+    button6=gtk_button_new_with_label("Restart program");
+    gtk_layout_put(GTK_LAYOUT(layout),button6,400,560);
+    g_signal_connect(button6,"clicked",G_CALLBACK(restart_button),NULL);
+    
+    
+
+    gtk_widget_show_all(window);
+    
+  
+    gtk_main();
+    
+    
+}
+
+void restart_button()
+{
+    gtk_widget_destroy(window);
+    iterations = 1;
+    account.Balance=1000;
+    account.freeze=0;
+    account.pin=1234;
+    old_pin=1234;
+    new_pin=5678;
+    fee=50;
+    damount=0;
+    wamount=0;
+    tamount=0;
+    accountN=0;
+    wpin=0;
+    dpin=0;
+    tpin=0;
+    account2.Balance=5000;
+    check_button=NULL;
+    check_button2=NULL;
+    check_button3=NULL;
+    check_button4=NULL;
+    check_button5=NULL;
+    check_button6=NULL;
+    check_button7=NULL;
+    n1=NULL;
+    n2=NULL; 
+    n3=NULL;
+    n4=NULL;
+    n5=NULL;
+    n6=NULL;
+    n7=NULL;
+    n8=NULL;
+    n9=NULL;
+    n10=NULL;
+    n11=NULL;
+    gtk_init(NULL,NULL);
+    create_gui();
+}
+int main(int argc, char *argv[]) {
+    
+
+    gtk_init(&argc, &argv);
+    create_gui();
+    return 0;
+}
